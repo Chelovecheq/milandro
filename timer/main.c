@@ -32,10 +32,10 @@ int main()
 
 void leds_init(void)
 {
-  RST_CLK_PCLKcmd(RST_CLK_PCLK_PORTC, ENABLE);
+  RST_CLK_PCLKcmd(RST_CLK_PCLK_PORTA, ENABLE);
 
   PORT_InitTypeDef PortInit; //объявление структуры PortInit
-  //Инициализация порта C на выход
+  //Инициализация порта A на выход
   // направление передачи данных = Выход
   PortInit.PORT_OE = PORT_OE_OUT;
   // режим работы вывода порта = Порт
@@ -45,9 +45,9 @@ void leds_init(void)
   // скорость фронта вывода = медленный
   PortInit.PORT_SPEED = PORT_SPEED_SLOW;
   // выбор всех выводов для инициализации
-  PortInit.PORT_Pin = (PORT_Pin_0 | PORT_Pin_1);
+  PortInit.PORT_Pin = (PORT_Pin_1 | PORT_Pin_2);
   //инициализация заданными параметрами порта C
-  PORT_Init(MDR_PORTC, &PortInit);
+  PORT_Init(MDR_PORTA, &PortInit);
 }
 
 void timer_init(void)
@@ -63,7 +63,7 @@ void timer_init(void)
   // счётчик таймера увеличвается на 1)
   TIM1Init.TIMER_Prescaler = 8000;
   //Задание модуля счета (когда счётчик дойдёт до 1000, сработает прерывание)
-  TIM1Init.TIMER_Period = 1000;
+  TIM1Init.TIMER_Period = 200;
   // Настройка таймера с выбранными настройками предделителя тактовой
   // частоты и модуля счёта
   TIMER_CntInit(MDR_TIMER1, &TIM1Init);
@@ -90,14 +90,14 @@ void change_led(void)
 {
   if (led_state == 0)
   {
-    PORT_SetBits(MDR_PORTC, LED1);
-    PORT_ResetBits(MDR_PORTC, LED2);
+    PORT_SetBits(MDR_PORTA, PORT_Pin_1);
+    PORT_ResetBits(MDR_PORTA, PORT_Pin_2);
     led_state = 1;
   }
   else
   {
-    PORT_SetBits(MDR_PORTC, LED2);
-    PORT_ResetBits(MDR_PORTC, LED1);
+    PORT_SetBits(MDR_PORTA, PORT_Pin_2);
+    PORT_ResetBits(MDR_PORTA, PORT_Pin_1);
     led_state = 0;
   }
 }
