@@ -10,8 +10,6 @@
 #include <stdbool.h>
 #include "MDR32F9Qx_adc.h"
 
-#define LED1 PORT_Pin_0 //определить нулевой вывод как LED1
-#define LED2 PORT_Pin_1
 
 #define delay(T) for(i = T; i > 0; i--)
 int i;
@@ -23,6 +21,8 @@ int i;
 ADC_InitTypeDef ADC;
 // Нужного нам канала
 ADCx_InitTypeDef ADC1;
+// для таймера
+TIMER_CntInitTypeDef TIM1Init;
 
 void ADCInit() {
 	// включение тактирования АЦП
@@ -66,6 +66,12 @@ void ADC_IRQHandler() {
 		rawResult &= 0x00FFF;
 		// преобразуем результат в вольты
 		result = (float) rawResult / (float) SCALE;
+
+		TIM1Init.TIMER_Prescaler = 8000*result;
+		TIMER_CntInit(MDR_TIMER1, &TIM1Init);
+		TIMER_ITConfig(MDR_TIMER1, TIMER_STATUS_CNT_ZERO, ENABLE);
+		TIMER_Cmd(MDR_TIMER1, ENABLE);
+
 		printf("Напряжение на переменном резистора %fВ (канал АЦП %i)\n",
 				result, channel);
 		fflush(stdout);
@@ -83,15 +89,19 @@ int led_state;
 
 int main() {
 	leds_init();
-	timer_init();
-	led_state = 0;
 	// Настраиваем и запускаем АЦП
 	ADCInit();
+	timer_init();
+	led_state = 0;
+	result = 1.0;
+
+
 
 	//бесконечный цикл
 	while (1) {
 		// После задержки если преобразование завершилось, запускаем заново
 		delay(0xFFFF);
+
 		if (!conInProgress) {
 			ADC1_Start();
 			conInProgress = true;
@@ -100,7 +110,7 @@ int main() {
 }
 
 void leds_init(void) {
-	RST_CLK_PCLKcmd(RST_CLK_PCLK_PORTA, ENABLE);
+	RST_CLK_PCLKcmd(RST_CLK_PCLK_PORTA , ENABLE);
 
 	PORT_InitTypeDef PortInit; //объявление структуры PortInit
 	//Инициализация порта A на выход
@@ -119,7 +129,7 @@ void leds_init(void) {
 }
 
 void timer_init(void) {
-	TIMER_CntInitTypeDef TIM1Init;
+
 	// Включение тактирования таймера
 	RST_CLK_PCLKcmd(RST_CLK_PCLK_TIMER1, ENABLE);
 	// Настройка делителя тактовой частоты для таймера
