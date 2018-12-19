@@ -5,6 +5,8 @@
 #include "MDR32F9Qx_rst_clk.h"
 #include "MDR32F9Qx_port.h"
 #include "MDR32F9Qx_timer.h"
+#include "MDR32F9Qx_adc.h" //ADC
+#include <stdbool.h>
 #include "stdlib.h"
 #include "stdio.h"
 
@@ -12,9 +14,28 @@
 #define LED2 PORT_Pin_2
 
 static PORT_InitTypeDef PortInit; //объявление структуры PortInit
+#define delay(T) for(i = T; i > 0; i--)
+
+int i;
+// коэффициент для преобразования кода с АЦП в вольты (подбирается)
+#define SCALE 1240
+
+// Необходимые для инициализации структуры
+// Самого АЦП
+ADC_InitTypeDef ADC;
+// Нужного нам канала
+ADCx_InitTypeDef ADC1;
 
 void timer_init(void);
 void pins_init(void);
+void ADCInit(void);
+void ADC_IRQHandler(void);
+
+bool conInProgress;
+unsigned int rawResult;
+unsigned char channel;
+float result;
+
 
 int main()
 {
@@ -27,44 +48,40 @@ int main()
   timer_init();
   pins_init();
   buttons_init();
+  ADCInit();
 
-  // выключить все светодиоды при старте
-  PORT_ResetBits(MDR_PORTA, LED1 | LED2);
-  //PORT_ResetBits(MDR_PORTC, LED2);
-
-  //бесконечный цикл
   while (1)
   {
-	  __NOP();
-    //если нажат SELECT
+	delay(0xFFFF);
+	     if (!conInProgress)
+	     {
+	       ADC1_Start();
+	       conInProgress = true;
+	     }
+	//если нажат SELECT
     if (PORT_ReadInputDataBit(MDR_PORTC, PORT_Pin_2) == Bit_RESET)
     {
       // включить светодиоды
-      PORT_SetBits(MDR_PORTA, LED1 | LED2);
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, 0xFFF);
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0xFFF);
       printf("Select pressed\n");
       fflush(stdout);
     }
-    else
+    else if (PORT_ReadInputDataBit(MDR_PORTB, PORT_Pin_6) == Bit_RESET)
     {
-      // выключить светодиоды
-      PORT_ResetBits(MDR_PORTA, LED1 | LED2);
-    }
-    if (PORT_ReadInputDataBit(MDR_PORTB, PORT_Pin_6) == Bit_RESET)
-    {
-      PORT_SetBits(MDR_PORTA, LED2);
-      printf("Right pressed\n");
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, 0x077);
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0xFFF * result);
+      printf("Right pressed %i\n", (int)0xFFF * result);
       fflush(stdout);
     }
-    else
-      PORT_ResetBits(MDR_PORTA, LED2);
-    if (PORT_ReadInputDataBit(MDR_PORTE, PORT_Pin_3) == Bit_RESET)
+
+    else if (PORT_ReadInputDataBit(MDR_PORTE, PORT_Pin_3) == Bit_RESET)
     {
-      PORT_SetBits(MDR_PORTA, LED1);
-      printf("Left pressed\n");
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, (int)0xFFF*result);
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0x077);
+      printf("Left pressed %i\n", (int)0xFFF * result);
       fflush(stdout);
     }
-    else
-      PORT_ResetBits(MDR_PORTA, LED1);
   }
 }
 
@@ -82,7 +99,7 @@ void pins_init(void)
   // скорость фронта вывода = медленный
   PortInit.PORT_SPEED = PORT_SPEED_FAST;
   // выбор всех выводов для инициализации
-  PortInit.PORT_Pin = (PORT_Pin_1 | PORT_Pin_2);
+  PortInit.PORT_Pin = (PORT_Pin_1 | PORT_Pin_3);
   //инициализация заданными параметрами порта C
   PORT_Init(MDR_PORTA, &PortInit);
 }
@@ -95,7 +112,7 @@ void timer_init(void)
    TIMER_ChnOutInitTypeDef sTIM_ChnOutInit;
 
    // Длительности импульса для каналов 1 и 2
-   uint16_t VAL1 = 0x1FF;
+   uint16_t VAL1 = 0x007;
    uint16_t VAL2 = 0x3FF;
 
    // Включение тактирования таймера 1
@@ -196,6 +213,56 @@ void buttons_init(void) {
 	  //инициализация порта С заданными параметрами
 	  PORT_Init(MDR_PORTE, &PortInit);
 }
+
+void ADCInit()
+{
+  // включение тактирования АЦП
+  RST_CLK_PCLKcmd(RST_CLK_PCLK_RST_CLK | RST_CLK_PCLK_ADC, ENABLE);
+  // заполнение структуры с настройкми АЦП значениями по умолчанию
+  ADC_StructInit(&ADC);
+  // и инициализация АЦП этими значениями
+  ADC_Init(&ADC);
+  // заполнение структуры с настройками канала АЦП значениями по умолчанию
+  ADCx_StructInit(&ADC1);
+  // ВЫбираем канал 7 (порт PD7).
+  // Перемычку входа АЦП XP2 нужно переставить в положение TRIM.
+  ADC1.ADC_ChannelNumber = ADC_CH_ADC7;
+  // настройка 7-го канала АЦП.
+  ADC1_Init(&ADC1);
+  // Включение и выставление наивысшего приоритета прерыванию от АЦП
+  // в настройках NVIC контроллера
+  NVIC_EnableIRQ(ADC_IRQn);
+  NVIC_SetPriority(ADC_IRQn, 0);
+  // включение прерывания от АЦП по завершению преобразования.
+  ADC1_ITConfig(ADCx_IT_END_OF_CONVERSION, ENABLE);
+  // включение работы АЦП1
+  ADC1_Cmd(ENABLE);
+}
+
+void ADC_IRQHandler()
+{
+  // если прерывание по завершению преобразования, обрабатываем результат
+  if (ADC_GetITStatus(ADC1_IT_END_OF_CONVERSION))
+  {
+    // читаем регистр с результатами преобразования
+    rawResult = ADC1_GetResult();
+    // Получение номера канала, завершившего преобразование
+    // биты 16..20 регистра
+    channel = (rawResult & 0x1F0000) >> 16;
+    // оставляем первые 12 бит регистра результата,
+    // в которых содержится сам результат преобразвоания
+    rawResult &= 0x00FFF;
+    // преобразуем результат в вольты
+    result = (float) rawResult / (float) 4096;
+    //printf("Напряжение на переменном резистора %fВ (канал АЦП %i)\n",
+    //    result,channel);
+    fflush(stdout);
+    conInProgress = false;
+    // снимаем флаг ожидания прерывания АЦП
+    NVIC_ClearPendingIRQ(ADC_IRQn);
+  }
+}
+
 void exit(int code)
 {
 }
