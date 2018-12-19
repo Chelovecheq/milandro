@@ -35,6 +35,7 @@ bool conInProgress;
 unsigned int rawResult;
 unsigned char channel;
 float result;
+uint16_t resulto;
 
 
 int main()
@@ -67,19 +68,30 @@ int main()
       printf("Select pressed\n");
       fflush(stdout);
     }
+    //если нажат DOWN
+    else if (PORT_ReadInputDataBit(MDR_PORTE, PORT_Pin_1) == Bit_RESET)
+        {
+          // включить светодиоды
+          TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, 0x007);
+          TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0x007);
+          printf("Down pressed\n");
+          fflush(stdout);
+        }
     else if (PORT_ReadInputDataBit(MDR_PORTB, PORT_Pin_6) == Bit_RESET)
     {
-      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, 0x077);
-      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0xFFF * result);
-      printf("Right pressed %i\n", (int)0xFFF * result);
+      resulto = 0xFFF*result;
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, 0x007);
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, resulto);
+      printf("Right pressed %i\n", resulto);
       fflush(stdout);
     }
 
     else if (PORT_ReadInputDataBit(MDR_PORTE, PORT_Pin_3) == Bit_RESET)
     {
-      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, (int)0xFFF*result);
-      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0x077);
-      printf("Left pressed %i\n", (int)0xFFF * result);
+      resulto = 0xFFF*result;
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL1, resulto);
+      TIMER_SetChnCompare(MDR_TIMER1, TIMER_CHANNEL2, 0x007);
+      printf("Left pressed %i\n", resulto);
       fflush(stdout);
     }
   }
@@ -212,6 +224,20 @@ void buttons_init(void) {
 	  PortInit.PORT_Pin = PORT_Pin_3;
 	  //инициализация порта С заданными параметрами
 	  PORT_Init(MDR_PORTE, &PortInit);
+
+	  //Инициализация порта кнопки DOWN (E1) на вход
+	  	  // направление передачи данных = вход
+	  	  PortInit.PORT_OE = PORT_OE_IN;
+	  	  // режим работы вывода порта = Порт
+	  	  PortInit.PORT_FUNC = PORT_FUNC_PORT;
+	  	  // режим работы выводе =цифровой
+	  	  PortInit.PORT_MODE = PORT_MODE_DIGITAL;
+	  	  // скорость фронта вывода= медленный
+	  	  PortInit.PORT_SPEED = PORT_SPEED_SLOW;
+	  	  // выбор вывода 1 для инициализации
+	  	  PortInit.PORT_Pin = PORT_Pin_1;
+	  	  //инициализация порта С заданными параметрами
+	  	  PORT_Init(MDR_PORTE, &PortInit);
 }
 
 void ADCInit()
@@ -254,6 +280,7 @@ void ADC_IRQHandler()
     rawResult &= 0x00FFF;
     // преобразуем результат в вольты
     result = (float) rawResult / (float) 4096;
+
     //printf("Напряжение на переменном резистора %fВ (канал АЦП %i)\n",
     //    result,channel);
     fflush(stdout);
